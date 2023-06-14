@@ -346,6 +346,20 @@ void RootDb::get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, t
   td::actor::send_closure(archive_db_, &ArchiveManager::get_block_by_seqno, account, seqno, std::move(promise));
 }
 
+void RootDb::get_max_masterchain_seqno(td::Promise<int> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::get_max_masterchain_seqno, std::move(promise));
+}
+
+void RootDb::try_catch_up_with_primary(td::Promise<td::Unit> promise) {
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
+  td::actor::send_closure(archive_db_, &ArchiveManager::try_catch_up_with_primary, ig.get_promise());
+  td::actor::send_closure(cell_db_, &CellDb::try_catch_up_with_primary, ig.get_promise());
+  td::actor::send_closure(state_db_, &StateDb::try_catch_up_with_primary, ig.get_promise());
+}
+
 void RootDb::update_init_masterchain_block(BlockIdExt block, td::Promise<td::Unit> promise) {
   td::actor::send_closure(state_db_, &StateDb::update_init_masterchain_block, block, std::move(promise));
 }

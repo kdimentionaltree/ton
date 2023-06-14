@@ -19,7 +19,7 @@
 #include "celldb.hpp"
 #include "rootdb.hpp"
 
-#include "td/db/RocksDb.h"
+#include "td/db/RocksDbSecondary.h"
 
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
@@ -68,7 +68,7 @@ CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb
 
 void CellDbIn::start_up() {
   CellDbBase::start_up();
-  cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_).move_as_ok());
+  cell_db_ = std::make_shared<td::RocksDbSecondary>(td::RocksDbSecondary::open(path_).move_as_ok());
 
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
@@ -83,6 +83,22 @@ void CellDbIn::start_up() {
     set_block(empty, std::move(e));
     cell_db_->commit_write_batch().ensure();
   }
+}
+
+void CellDbIn::try_catch_up_with_primary(td::Promise<td::Unit> promise) {
+  auto secondary = dynamic_cast<td::RocksDbSecondary *>(cell_db_.get());
+  if (secondary == nullptr) {
+    promise.set_error(td::Status::Error("it's not secondary db"));
+  }
+  auto R = secondary->try_catch_up_with_primary();
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+  }
+
+  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
+  td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
+
+  promise.set_result(td::Unit());
 }
 
 void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
@@ -160,7 +176,7 @@ void CellDbIn::alarm() {
       }
     }
   });
-  td::actor::send_closure(root_db_, &RootDb::allow_state_gc, block_id, std::move(P));
+  // td::actor::send_closure(root_db_, &RootDb::allow_state_gc, block_id, std::move(P));
 }
 
 void CellDbIn::gc(BlockIdExt block_id) {
@@ -301,6 +317,10 @@ void CellDb::start_up() {
   CellDbBase::start_up();
   boc_ = vm::DynamicBagOfCellsDb::create();
   cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_);
+}
+
+void CellDb::try_catch_up_with_primary(td::Promise<td::Unit> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::try_catch_up_with_primary, std::move(promise));
 }
 
 CellDbIn::DbEntry::DbEntry(tl_object_ptr<ton_api::db_celldb_value> entry)
