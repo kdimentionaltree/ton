@@ -19,7 +19,7 @@
 #include "statedb.hpp"
 #include "ton/ton-tl.hpp"
 #include "adnl/utils.hpp"
-#include "td/db/RocksDb.h"
+#include "td/db/RocksDbSecondary.h"
 #include "ton/ton-shard.h"
 
 namespace ton {
@@ -221,7 +221,7 @@ StateDb::StateDb(td::actor::ActorId<RootDb> root_db, std::string db_path) : root
 }
 
 void StateDb::start_up() {
-  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path_).move_as_ok());
+  kv_ = std::make_shared<td::RocksDbSecondary>(td::RocksDbSecondary::open(db_path_).move_as_ok());
 
   std::string value;
   auto R = kv_->get(create_serialize_tl_object<ton_api::db_state_key_dbVersion>(), value);
@@ -238,6 +238,18 @@ void StateDb::start_up() {
         .ensure();
     kv_->commit_write_batch().ensure();
   }
+}
+
+void StateDb::try_catch_up_with_primary(td::Promise<td::Unit> promise) {
+  auto secondary = dynamic_cast<td::RocksDbSecondary *>(kv_.get());
+  if (secondary == nullptr) {
+    promise.set_error(td::Status::Error("it's not secondary db"));
+  }
+  auto R = secondary->try_catch_up_with_primary();
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+  }
+  promise.set_result(td::Unit());
 }
 
 void StateDb::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {

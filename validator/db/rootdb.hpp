@@ -35,9 +35,8 @@ namespace validator {
 class RootDb : public Db {
  public:
   enum class Flags : td::uint32 { f_started = 1, f_ready = 2, f_switched = 4, f_archived = 8 };
-  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path,
-         td::Ref<ValidatorManagerOptions> opts)
-      : validator_manager_(validator_manager), root_path_(std::move(root_path)), opts_(opts) {
+  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path, bool as_secondary = false)
+      : validator_manager_(validator_manager), root_path_(std::move(root_path)), opts_(opts), as_secondary_(as_secondary) {
   }
 
   void start_up() override;
@@ -134,6 +133,10 @@ class RootDb : public Db {
                          td::Promise<td::BufferSlice> promise) override;
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
 
+  void try_catch_up_with_primary(td::Promise<td::Unit> promise);
+
+  void get_max_masterchain_seqno(td::Promise<int> promise);
+
   void run_gc(UnixTime ts, UnixTime archive_ttl) override;
 
  private:
@@ -146,6 +149,8 @@ class RootDb : public Db {
   td::actor::ActorOwn<StateDb> state_db_;
   td::actor::ActorOwn<StaticFilesDb> static_files_db_;
   td::actor::ActorOwn<ArchiveManager> archive_db_;
+
+  bool as_secondary_;
 };
 
 }  // namespace validator

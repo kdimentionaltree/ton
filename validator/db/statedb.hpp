@@ -58,6 +58,8 @@ class StateDb : public td::actor::Actor {
   void start_up() override;
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
 
+  void try_catch_up_with_primary(td::Promise<td::Unit> promise);
+
  private:
   using KeyType = td::Bits256;
 

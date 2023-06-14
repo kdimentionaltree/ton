@@ -21,6 +21,7 @@
 #include "td/actor/MultiPromise.h"
 #include "validator/fabric.h"
 #include "td/db/RocksDb.h"
+#include "td/db/RocksDbSecondary.h"
 #include "ton/ton-io.hpp"
 #include "td/utils/port/path.h"
 #include "common/delay.h"
@@ -32,6 +33,7 @@ namespace validator {
 
 void PackageWriter::append(std::string filename, td::BufferSlice data,
                            td::Promise<std::pair<td::uint64, td::uint64>> promise) {
+  UNREACHABLE();
   auto offset = package_->append(std::move(filename), std::move(data), !async_mode_);
   auto size = package_->size();
 
@@ -447,7 +449,7 @@ void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::
 void ArchiveSlice::start_up() {
   PackageId p_id{archive_id_, key_blocks_only_, temp_};
   std::string db_path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".index";
-  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path).move_as_ok());
+  kv_ = std::make_shared<td::RocksDbSecondary>(td::RocksDbSecondary::open(db_path).move_as_ok());
 
   std::string value;
   auto R2 = kv_->get("status", value);
@@ -500,6 +502,47 @@ void ArchiveSlice::start_up() {
   }
 }
 
+td::Status ArchiveSlice::try_catch_up_with_primary() {
+  auto secondary = dynamic_cast<td::RocksDbSecondary *>(kv_.get());
+  if (secondary == nullptr) {
+    return td::Status::Error("it's not secondary db");
+  }
+
+  TRY_STATUS(secondary->try_catch_up_with_primary());
+
+  std::string value;
+  auto R2 = kv_->get("status", value);
+  R2.ensure();
+  if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    if (value == "sliced") {
+      R2 = kv_->get("slices", value);
+      R2.ensure();
+      auto tot = td::to_integer<td::uint32>(value);
+      if (tot == packages_.size()) {
+        return td::Status::OK();
+      }
+      R2 = kv_->get("slice_size", value);
+      R2.ensure();
+      slice_size_ = td::to_integer<td::uint32>(value);
+      CHECK(slice_size_ > 0);
+      for (td::uint32 i = packages_.size(); i < tot; i++) {
+        R2 = kv_->get(PSTRING() << "status." << i, value);
+        R2.ensure();
+        auto len = td::to_integer<td::uint64>(value);
+        R2 = kv_->get(PSTRING() << "version." << i, value);
+        R2.ensure();
+        td::uint32 ver = 0;
+        if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+          ver = td::to_integer<td::uint32>(value);
+        }
+        auto v = archive_id_ + slice_size_ * i;
+        add_package(v, len, ver);
+      }
+    }
+  }
+  return td::Status::OK();
+}
+
 void ArchiveSlice::begin_transaction() {
   if (!async_mode_ || !huge_transaction_started_) {
     kv_->begin_transaction().ensure();
@@ -507,6 +550,10 @@ void ArchiveSlice::begin_transaction() {
       huge_transaction_started_ = true;
     }
   }
+}
+
+void ArchiveSlice::get_max_masterchain_seqno(td::Promise<int> promise) {
+  promise.set_result(max_masterchain_seqno());
 }
 
 void ArchiveSlice::commit_transaction() {
@@ -573,7 +620,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
 void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
   std::string path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".pack";
-  auto R = Package::open(path, false, true);
+  auto R = Package::open(path, false, false);
   if (R.is_error()) {
     LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
     return;
@@ -585,7 +632,7 @@ void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 ver
   }
   auto pack = std::make_shared<Package>(R.move_as_ok());
   if (version >= 1) {
-    pack->truncate(size).ensure();
+    // pack->truncate(size).ensure();
   }
   auto writer = td::actor::create_actor<PackageWriter>("writer", pack);
   packages_.emplace_back(std::move(pack), std::move(writer), seqno, path, idx, version);
@@ -759,6 +806,7 @@ void ArchiveSlice::truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shar
 }
 
 void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
+  UNREACHABLE();
   if (temp_ || archive_id_ > masterchain_seqno) {
     destroy(std::move(promise));
     return;

@@ -62,6 +62,8 @@ class CellDbIn : public CellDbBase {
   void start_up() override;
   void alarm() override;
 
+  void try_catch_up_with_primary(td::Promise<td::Unit> promise);
+
  private:
   struct DbEntry {
     BlockIdExt block_id;
@@ -148,6 +150,8 @@ class CellDb : public CellDbBase {
   }
 
   void start_up() override;
+
+  void try_catch_up_with_primary(td::Promise<td::Unit> promise);
 
  private:
   td::actor::ActorId<RootDb> root_db_;

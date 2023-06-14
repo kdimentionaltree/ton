@@ -93,6 +93,7 @@ class ArchiveSlice : public td::actor::Actor {
                         std::function<td::int32(ton_api::db_lt_el_value &)> compare, bool exact,
                         td::Promise<ConstBlockHandle> promise);
 
+  void get_max_masterchain_seqno(td::Promise<int> promise);
   void get_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise);
 
   void start_up() override;
@@ -102,6 +103,7 @@ class ArchiveSlice : public td::actor::Actor {
   void begin_transaction();
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
+  td::Status try_catch_up_with_primary();
 
  private:
   void written_data(BlockHandle handle, td::Promise<td::Unit> promise);
