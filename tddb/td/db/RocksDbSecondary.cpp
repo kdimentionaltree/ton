@@ -73,6 +73,7 @@ Result<RocksDbSecondary> RocksDbSecondary::open(std::string path) {
     options.max_background_flushes = 2;
     options.bytes_per_sync = 1 << 20;
     options.writable_file_max_buffer_size = 2 << 14;
+    options.keep_log_file_num = 1;
     options.statistics = statistics;
     rocksdb::ColumnFamilyOptions cf_options(options);
     std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
