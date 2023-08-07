@@ -72,6 +72,7 @@ class ArchiveManager : public td::actor::Actor {
   void start_up() override;
 
   void try_catch_up_with_primary(td::Promise<td::Unit> promise);
+  td::Status catch_up_package(const PackageId& id);
   void get_max_masterchain_seqno(td::Promise<int> promise);
 
   void commit_transaction();
@@ -90,6 +91,10 @@ class ArchiveManager : public td::actor::Actor {
       BlockSeqno seqno;
       UnixTime ts;
       LogicalTime lt;
+
+      bool operator==(const Desc& other) const {
+        return seqno == other.seqno && ts == other.ts && lt == other.lt;
+      }
     };
     FileDescription(PackageId id, bool deleted) : id(id), deleted(deleted) {
     }

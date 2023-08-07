@@ -896,22 +896,61 @@ void ArchiveManager::try_catch_up_with_primary(td::Promise<td::Unit> promise) {
     auto id = PackageId{static_cast<td::uint32>(d), false, false};
     if (get_file_map(id).count(id) == 0) {
       load_package(id);
+    } else {
+      catch_up_package(id);
     }
   }
   for (auto &d : x->key_packages_) {
     auto id = PackageId{static_cast<td::uint32>(d), true, false};
     if (get_file_map(id).count(id) == 0) {
       load_package(id);
+    } else {
+      catch_up_package(id);
     }
   }
   for (auto &d : x->temp_packages_) {
     auto id = PackageId{static_cast<td::uint32>(d), false, true};
     if (get_file_map(id).count(id) == 0) {
       load_package(id);
+    } else {
+      catch_up_package(id);
+    }
+  }
+  promise.set_result(td::Unit());
+}
+
+td::Status ArchiveManager::catch_up_package(const PackageId& id) {
+  auto key = create_serialize_tl_object<ton_api::db_files_package_key>(id.id, id.key, id.temp);
+
+  std::string value;
+  auto v = index_->get(key.as_slice(), value);
+  v.ensure();
+  CHECK(v.move_as_ok() == td::KeyValue::GetStatus::Ok);
+
+  auto R = fetch_tl_object<ton_api::db_files_package_value>(value, true);
+  R.ensure();
+  auto x = R.move_as_ok();
+  
+  std::map<ShardIdFull, FileDescription::Desc> first_blocks;
+  if (!id.temp) {
+    for (auto &e : x->firstblocks_) {
+      first_blocks[ShardIdFull{e->workchain_, static_cast<ShardId>(e->shard_)}] = FileDescription::Desc{
+          static_cast<BlockSeqno>(e->seqno_), static_cast<UnixTime>(e->unixtime_), static_cast<LogicalTime>(e->lt_)};
     }
   }
 
-  promise.set_result(td::Unit());
+  auto& map = get_file_map(id);
+  auto it = map.find(id);
+  CHECK(it != map.end());
+  if (it->second.first_blocks != first_blocks || it->second.deleted != x->deleted_) {
+    FileDescription desc{id, x->deleted_};
+    desc.first_blocks = std::move(first_blocks);
+    desc.file = std::move(it->second.file);
+    map.erase(it);
+    map.emplace(id, std::move(desc));
+  }
+  
+  return td::Status::OK();
 }
 
 void ArchiveManager::get_max_masterchain_seqno(td::Promise<int> promise) {
