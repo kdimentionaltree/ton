@@ -136,7 +136,7 @@ class Slice {
   size_t rfind(char c) const;
 
   char back() const;
-  char operator[](size_t i) const;
+  char operator[](size_t i) const;void as_slice();
 
   static const size_t npos = static_cast<size_t>(-1);
 };

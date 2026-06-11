@@ -829,3 +829,5 @@ ton_test(test-db ${TEST_OPTIONS})
 add_subdirectory(test)
 endif()
 #END internal
+
+add_subdirectory(sandbox)
